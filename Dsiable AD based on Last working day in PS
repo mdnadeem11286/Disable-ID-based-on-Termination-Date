@@ -1,0 +1,80 @@
+#Install-Module -Name ImportExcel -Force -SkipPublisherCheck
+# Specify your SQL Server connection details
+$server = "DBSERVERNAME"
+$instance = "DBINSTANCE"
+$port = 3886
+
+  $userID = $null
+  $EmpCodeinTermination=$null
+  $EmpCodeinPeople=$nullv
+  $Cessation=$null
+	
+
+$connectionString = "Server=$server,$port\$instance;Integrated Security=True;Encrypt=True;"
+#the query is pulling empcode, and last working day from the table
+$sqlQuery = @"
+    SELECT t.adlogin, t.empcode, t.lastdt, FROM [TerminationRegister].[dbo].[Tablename] AS t 
+ "@
+
+try {
+   	
+	$sqlData = Invoke-Sqlcmd -ServerInstance "$server,$port\$instance" -Query $sqlQuery -ErrorAction Stop -TrustServerCertificate
+   
+}
+catch {
+    Write-Host "Error: $_"
+    # Handle the error as needed
+}
+$outputData = @()
+
+foreach ($row in $sqlData) 
+{
+   # Get the columns data in variables to move them in output row which eventually be pushed to Outputfile.
+    $userID = $row.adlogin
+	$EmpCodeinTermination=$row.empcode
+	$LastDay = $row.lastdt
+	$Status=$null
+	
+	
+	try {
+            $user = Get-ADUser -Identity $userID -Properties Description, Title, Enabled -ErrorAction Stop
+
+            # Set status based on user's enabled status
+           if ($user.Enabled) 
+			{ 
+			     $Status ="Enabled" 
+				   # Disable the user account specified by $userID
+                   Disable-ADAccount -Identity $userID
+			} 
+			else 
+			{ 
+			   "Disabled" 
+			}
+	      }
+		
+         catch {
+            # User not found in Active Directory
+            $Status = "Not Found in AD"
+			
+			}
+	
+	
+	$outputRow = [PSCustomObject]@{
+        'UserID'                     = $userID
+		'EmpCodeinTermination'       = $EmpCodeinTermination
+         'LastDay'        = $LastDay
+	   'Status' = $Status
+	  
+      }
+    $outputData += $outputRow
+	}
+	
+	
+$timestamp = Get-Date -Format "dd-MM-yyyy hhmmss"
+
+# Specify the path to the output Excel file with timestamp
+$outputExcelFilePath = "C:\TempLIS\Testing AD Titles\Output\Termination\TitleOutputFile_$timestamp.xlsx"
+
+# Export the output data to a new Excel file
+$outputData | Export-Excel -Path $outputExcelFilePath -AutoSize
+$outputData =$null
